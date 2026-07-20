@@ -169,6 +169,8 @@
   .amount-box .yen{font-size:26px; color:var(--tx3); font-weight:800;}
   .amtdisp{font-size:52px; font-weight:900; letter-spacing:-.01em; font-variant-numeric:tabular-nums; line-height:1.1; max-width:78%; overflow:hidden;}
   .amtdisp.zero{color:var(--line2);}
+  .permon{font-size:16px; color:var(--tx3); font-weight:800;}
+  .fix-hint{font-size:11.5px; color:var(--tx3); line-height:1.6; margin-top:8px; padding:0 2px;}
 
   .grid-label{font-size:12px; color:var(--tx3); font-weight:800; margin:10px 2px 7px; letter-spacing:.04em;}
   .cat-grid{display:grid; grid-template-columns:repeat(4,1fr); gap:8px;}
@@ -695,15 +697,17 @@ var addState={mode:'exp', category:(db.settings.lastCat||'food'), incSrc:'給料
 function catOnStyle(color){ return 'background:'+hexA(color,.16)+';border-color:'+color+';color:var(--tx)'; }
 
 function renderAdd(){
-  var isExp=addState.mode==='exp';
+  var mode=addState.mode, isExp=mode==='exp', isFix=mode==='fix', isInc=mode==='inc';
   var html='';
-  html+='<div class="seg '+(isExp?'':'inc')+'">'+
+  html+='<div class="seg '+(isInc?'inc':'')+'">'+
     '<button class="'+(isExp?'on':'')+'" data-am="exp">支出</button>'+
-    '<button class="'+(!isExp?'on':'')+'" data-am="inc">収入</button></div>';
+    '<button class="'+(isFix?'on':'')+'" data-am="fix">🔁 固定費</button>'+
+    '<button class="'+(isInc?'on':'')+'" data-am="inc">収入</button></div>';
 
-  html+='<div class="amount-box"><span class="yen">¥</span><span id="amtDisp" class="amtdisp zero num">0</span></div>';
+  html+='<div class="amount-box"><span class="yen">¥</span><span id="amtDisp" class="amtdisp zero num">0</span>'+
+    (isFix?'<span class="permon">/月</span>':'')+'</div>';
 
-  if(isExp){
+  if(isExp || isFix){
     html+='<div class="grid-label">カテゴリ</div><div class="cat-grid">';
     CATS.forEach(function(c){
       var on=addState.category===c.key;
@@ -720,13 +724,18 @@ function renderAdd(){
     html+='</div>';
   }
 
-  html+='<div class="grid-label">日付</div>'+
-    '<div class="date-row">'+
-      '<button class="date-chip" data-datechip="today">今日</button>'+
-      '<button class="date-chip" data-datechip="yest">昨日</button>'+
-      '<input type="date" id="dateInp" class="date-inp" value="'+addState.date+'">'+
-    '</div>';
-  html+='<input type="text" id="memo" class="inp memo-inp" placeholder="メモ（任意）" maxlength="30" value="'+esc(addState.memo||'')+'">';
+  if(isFix){
+    html+='<input type="text" id="memo" class="inp memo-inp" placeholder="項目名（例: 家賃・Netflix）" maxlength="20" value="'+esc(addState.memo||'')+'">';
+    html+='<div class="fix-hint">毎月自動で計上・日割りでKPIに反映。登録済みの確認・削除は「目標」タブへ。</div>';
+  } else {
+    html+='<div class="grid-label">日付</div>'+
+      '<div class="date-row">'+
+        '<button class="date-chip" data-datechip="today">今日</button>'+
+        '<button class="date-chip" data-datechip="yest">昨日</button>'+
+        '<input type="date" id="dateInp" class="date-inp" value="'+addState.date+'">'+
+      '</div>';
+    html+='<input type="text" id="memo" class="inp memo-inp" placeholder="メモ（任意）" maxlength="30" value="'+esc(addState.memo||'')+'">';
+  }
 
   // numpad tray
   var keys=['7','8','9','4','5','6','1','2','3','000','0','del'];
@@ -736,11 +745,11 @@ function renderAdd(){
     var cls='pad-key'+(k==='000'?' pad-000':'')+(k==='del'?' pad-del':'');
     html+='<button class="'+cls+'" data-key="'+k+'">'+label+'</button>';
   });
-  html+='</div><button class="pad-rec'+(isExp?'':' inc')+'" id="padRec">'+(isExp?'記録する':'収入を記録')+'</button></div>';
+  html+='</div><button class="pad-rec'+(isInc?' inc':'')+'" id="padRec">'+(isFix?'固定費に登録':(isExp?'記録する':'収入を記録'))+'</button></div>';
 
   views.add.innerHTML=html;
   renderAmt();
-  syncDateChips();
+  if(!isFix) syncDateChips();
 }
 function renderAmt(){
   var d=byId('amtDisp'); if(!d) return;
@@ -784,6 +793,15 @@ function saveTx(){
   var amt=parseInt(amtStr,10)||0;
   if(amt<=0){ toast('金額を入れてね'); return; }
   var memoEl=byId('memo'); var memo=memoEl?memoEl.value.trim():'';
+  if(addState.mode==='fix'){
+    var name=memo || (CATMAP[addState.category]?CATMAP[addState.category].label:'固定費');
+    db.fixedCosts.push({id:newId(), name:name, category:addState.category, amount:amt, since:ymOf(new Date())});
+    save();
+    toast('固定費「'+name+'」を登録 ・毎月自動計上');
+    amtStr='0'; addState.memo=''; if(memoEl) memoEl.value='';
+    renderAmt();
+    return;
+  }
   var date=addState.date||ymdOf(new Date());
   if(addState.mode==='exp'){
     db.expenses.push({id:newId(), date:date, category:addState.category, amount:amt, memo:memo});
