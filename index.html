@@ -108,13 +108,22 @@
   /* KPI trio */
   .trio{display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; margin-top:12px;}
   .kpi{background:var(--card); border:1px solid var(--line); border-radius:var(--r2); padding:12px 10px; min-width:0;}
-  .kpi .k-cap{font-size:11px; color:var(--tx2); font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .kpi .k-cap{font-size:11px; color:var(--tx2); font-weight:800; white-space:nowrap; overflow:hidden; display:flex; align-items:baseline; gap:4px;}
   .kpi .k-val{font-size:17px; font-weight:900; margin-top:3px; letter-spacing:-.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
   .kpi .k-of{font-size:10.5px; color:var(--tx3); margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
   .kpi .k-bar{height:6px; border-radius:99px; background:var(--line); margin-top:9px; overflow:hidden;}
   .kpi .k-bar > i{display:block; height:100%; background:var(--accent); transition:width .6s cubic-bezier(.22,.61,.36,1);}
   .kpi.over .k-val{color:var(--over);} .kpi.over .k-bar > i{background:var(--over);}
   .kpi.ok .k-val{color:var(--accent);}
+
+  /* Achievement gauge */
+  .gauge .gseg{transition:stroke-dasharray .7s cubic-bezier(.22,.61,.36,1);}
+  .gauge .gv{font-size:13px; font-weight:900; fill:var(--tx);}
+  .gauge .gc{font-size:7px; font-weight:700; fill:var(--tx3);}
+  .k-cap .k-lbl{min-width:0; overflow:hidden; text-overflow:ellipsis;}
+  .k-pct{margin-left:auto; font-size:11px; font-weight:900; color:var(--tx3); flex:0 0 auto;}
+  .kpi.ok .k-pct{color:var(--accent);}
+  .kpi.over .k-pct{color:var(--over);}
 
   /* Savings */
   .save-row{display:flex; align-items:flex-end; gap:14px;}
@@ -493,7 +502,7 @@ function renderHome(){
     } else {
       html+='<div class="cap">'+(view.getMonth()+1)+'月の残り'+(hasFixed?'（自由に使える）':'予算')+'</div>'+
         '<div class="big"><span class="yen">¥</span><span class="num">'+fmt(varRemain)+'</span></div>'+
-        '<div class="sub">使った <b class="num">¥'+fmt(S.variableMTD)+'</b> / '+(hasFixed?'変動予算':'予算')+' <b class="num">¥'+fmt(S.varBudget)+'</b></div>';
+        '<div class="sub">使った <b class="num">¥'+fmt(S.variableMTD)+'</b> / '+(hasFixed?'変動予算':'予算')+' <b class="num">¥'+fmt(S.varBudget)+'</b>（消化率 <b class="num">'+Math.round(pctM)+'%</b>）</div>';
     }
     html+='<div class="bar '+(overM?'over':'')+'"><i data-w="'+pctM+'" style="width:0"></i>'+
       (S.cur? '<span class="pace-tick" style="left:'+(S.elapsedFrac*100)+'%"></span>':'')+'</div>';
@@ -540,15 +549,29 @@ function ringSvg(pct,over){
     '<circle cx="60" cy="60" r="'+r+'" fill="none" stroke="'+col+'" stroke-width="9" stroke-linecap="round" stroke-dasharray="'+c+'" stroke-dashoffset="'+off+'" transform="rotate(-90 60 60)"/>'+
     '</svg>';
 }
+function gaugeSvg(pct, color){
+  // 小型の達成率リング。100%で満円、表示は実%(999%+で頭打ち)
+  var r=26, sw=7, c=2*Math.PI*r;
+  var frac=Math.max(0, Math.min(1, pct/100));
+  var disp=pct>=1000? '999%+' : Math.round(pct)+'%';
+  return '<svg class="gauge" viewBox="0 0 64 64" width="64" height="64">'+
+    '<circle cx="32" cy="32" r="'+r+'" fill="none" stroke="var(--line)" stroke-width="'+sw+'"/>'+
+    '<circle class="gseg" cx="32" cy="32" r="'+r+'" fill="none" stroke="'+color+'" stroke-width="'+sw+'" stroke-linecap="round" stroke-dasharray="0 '+c+'" data-dash="'+(c*frac)+' '+(c*(1-frac))+'" transform="rotate(-90 32 32)"/>'+
+    '<text x="32" y="30" text-anchor="middle" class="gv num">'+disp+'</text>'+
+    '<text x="32" y="42" text-anchor="middle" class="gc">達成率</text>'+
+    '</svg>';
+}
 function kpiCard(cap, spent, kpi, ofw){
   if(spent===null){
     return '<div class="kpi"><div class="k-cap">'+cap+'</div><div class="k-val" style="color:var(--tx3)">—</div>'+
       '<div class="k-of">'+ofw+' ¥'+fmt(kpi)+'</div></div>';
   }
   var over=spent>kpi;
-  var pct=kpi>0?Math.min(100,spent/kpi*100):0;
+  var rawPct=kpi>0? spent/kpi*100 : 0;
+  var pct=Math.min(100,rawPct);
+  var pctDisp=rawPct>=1000? '999%+' : Math.round(rawPct)+'%';
   return '<div class="kpi '+(over?'over':'ok')+'">'+
-    '<div class="k-cap">'+cap+'</div>'+
+    '<div class="k-cap"><span class="k-lbl">'+cap+'</span><span class="k-pct num">'+pctDisp+'</span></div>'+
     '<div class="k-val num">¥'+fmt(spent)+'</div>'+
     '<div class="k-of">'+ofw+' ¥'+fmt(kpi)+'</div>'+
     '<div class="k-bar"><i data-w="'+pct+'" style="width:0"></i></div>'+
@@ -574,19 +597,24 @@ function savingsCard(S){
     label='今月の貯蓄（収入−支出）';
   }
 
-  var badge='';
+  var badge='', meta='';
   if(target>0){
     var diff=headline-target;
     badge = diff>=0
       ? '<span style="color:var(--accent);font-weight:900">目標達成 +¥'+fmt(diff)+'</span>'
       : '<span style="color:var(--blue);font-weight:900">あと ¥'+fmt(-diff)+' で達成</span>';
+    var rate=Math.max(0, headline/target*100);           // 目標貯蓄に対する達成率
+    var gcolor=rate>=100? 'var(--accent)':'var(--blue)';
+    meta='<div class="save-meta">'+gaugeSvg(rate,gcolor)+
+      '<div style="margin-top:2px">目標 <b class="num" style="color:var(--tx)">¥'+fmt(target)+'</b></div>'+
+      '<div>'+badge+'</div></div>';
   }
 
   var html='<div class="card">'+
     '<div class="save-row">'+
       '<div><div class="save-cap">'+label+'</div>'+
       '<div class="save-big '+(headline>=0?'pos':'neg')+' num">'+(headline>=0?'+':'−')+'¥'+fmt(Math.abs(headline))+'</div>'+subLine+'</div>'+
-      (target>0?('<div class="save-meta">目標 <b class="num" style="color:var(--tx)">¥'+fmt(target)+'</b><br>'+badge+'</div>'):'')+
+      meta+
     '</div>'+
     '<div class="chips-line">'+
       '<div class="mini"><div class="m-c">収入</div><div class="m-v num" style="color:var(--blue)">¥'+fmt(incM)+'</div></div>'+
