@@ -140,8 +140,8 @@
   .cat-row{margin-bottom:11px;}
   .cat-row:last-child{margin-bottom:0;}
   .cat-head{display:flex; align-items:center; gap:8px; font-size:13px;}
-  .cat-head .emo{font-size:15px;}
-  .cat-head .nm{font-weight:700;}
+  .cat-head .emo{font-size:15px; flex:0 0 auto;}
+  .cat-head .nm{font-weight:700; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   .cat-head .amt{margin-left:auto; font-weight:900; font-size:13.5px;}
   .cat-head .pct{color:var(--tx2); font-size:11px; font-weight:700; min-width:34px; text-align:right;}
   .cat-bar{height:6px; border-radius:99px; background:var(--line); margin-top:5px; overflow:hidden;}
@@ -248,6 +248,36 @@
   .ghost-btn2{width:100%; margin-top:12px; background:var(--card2); border:1px solid var(--line2); color:var(--tx); border-radius:12px; padding:12px; font-weight:800; font-size:13.5px; transition:transform .08s ease;}
   .ghost-btn2:active{transform:scale(.98);}
 
+  /* Fixed costs */
+  .fixed-note{margin-top:10px; font-size:11.5px; color:var(--tx3);}
+  .fixed-note b{color:var(--tx2); font-weight:900;}
+  .fx-empty{font-size:12.5px; color:var(--tx2); line-height:1.75;}
+  .fx-empty b{color:var(--tx);}
+  .fx-item{display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--line);}
+  .fx-item:first-child{padding-top:2px;}
+  .fx-emo{font-size:18px; flex:0 0 auto;}
+  .fx-name{font-weight:800; font-size:13.5px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .fx-amt{margin-left:auto; font-weight:900; font-size:13.5px; white-space:nowrap;}
+  .fx-amt small{font-size:10.5px; color:var(--tx3); font-weight:700;}
+  .fx-del{background:none; border:none; color:var(--tx3); font-size:15px; width:34px; height:34px; margin:-6px -8px -6px 2px; display:grid; place-items:center; flex:0 0 auto; transition:transform .08s ease;}
+  .fx-del:active{color:var(--over); transform:scale(.9);}
+  .fx-total{margin-top:12px; font-size:12.5px; color:var(--tx2); line-height:1.7;}
+  .fx-total b{color:var(--tx); font-weight:900;}
+  .fx-add{margin-top:14px;}
+  .fx-add .inp{width:100%;}
+  .fx-row2{display:flex; gap:8px; margin-top:8px;}
+  .fx-cat{flex:0 0 42%; color-scheme:light dark;}
+  .fx-add-btn{width:100%; margin-top:10px; background:var(--card2); border:1px dashed var(--line2); color:var(--tx); border-radius:12px; padding:12px; font-weight:800; font-size:13.5px; transition:transform .08s ease;}
+  .fx-add-btn:active{transform:scale(.98);}
+  .fx-summary{margin-bottom:4px;}
+  .fx-sum-head{display:flex; align-items:baseline; flex-wrap:wrap; gap:4px 8px; font-size:12px; font-weight:900; color:var(--tx3); margin-bottom:8px;}
+  .fx-sum-total{margin-left:auto; color:var(--tx2); font-weight:800;}
+  .fx-sum-row{display:flex; align-items:center; gap:9px; padding:6px 0;}
+  .fx-sum-row .fx-emo{font-size:16px;}
+  .fx-nm{font-weight:700; font-size:13px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .fx-sum-amt{margin-left:auto; font-weight:900; font-size:13px; color:var(--tx2); white-space:nowrap;}
+  .fx-sum-amt small{font-size:10px; color:var(--tx3); font-weight:700;}
+
   /* ===== Bottom nav ===== */
   nav{
     position:fixed; bottom:0; left:0; right:0; z-index:30;
@@ -315,11 +345,15 @@ var CATMAP = {}; CATS.forEach(function(c){CATMAP[c.key]=c;});
 
 /* ============ Store ============ */
 var KEY='mirupurasu_v1';
-var DEFAULT={ settings:{ mode:'saving', income:0, targetSaving:0, budget:0, lastCat:'food' }, expenses:[], incomes:[] };
+var DEFAULT={ settings:{ mode:'saving', income:0, targetSaving:0, budget:0, lastCat:'food' }, expenses:[], incomes:[], fixedCosts:[] };
 var db=load();
 function load(){
   try{ var r=JSON.parse(localStorage.getItem(KEY)); if(r&&r.settings){
-    return {settings:Object.assign({},DEFAULT.settings,r.settings), expenses:r.expenses||[], incomes:r.incomes||[]};
+    var d={settings:Object.assign({},DEFAULT.settings,r.settings), expenses:r.expenses||[], incomes:r.incomes||[], fixedCosts:r.fixedCosts||[]};
+    var mx=r._c||0;  // 単調増加IDカウンタを復元。既存の最大idも下限に取り衝突を不能化
+    d.expenses.concat(d.incomes, d.fixedCosts).forEach(function(x){ if(x && +x.id>mx) mx=+x.id; });
+    d._c=mx;
+    return d;
   }}catch(e){}
   return JSON.parse(JSON.stringify(DEFAULT));
 }
@@ -356,31 +390,48 @@ function expensesOfMonth(){ return db.expenses.filter(function(e){return sameMon
 function incomesOfMonth(){ return db.incomes.filter(function(e){return sameMonth(e.date,view);}); }
 function sum(arr){ return arr.reduce(function(a,b){return a+(+b.amount||0);},0); }
 function spentToday(){ if(!isCurrentMonth(view)) return null; var t=ymdOf(new Date()); return sum(db.expenses.filter(function(e){return e.date===t;})); }
-function spentThisWeek(){ if(!isCurrentMonth(view)) return null; var r=weekRange(new Date()); return sum(db.expenses.filter(function(e){var d=parseYmd(e.date); return d>=r.mon && d<=r.sun;})); }
+function spentThisWeek(){ if(!isCurrentMonth(view)) return null; var r=weekRange(new Date()); return sum(db.expenses.filter(function(e){var d=parseYmd(e.date); return d>=r.mon && d<=r.sun && sameMonth(e.date,view);})); }
+// 登録月(since)以降の月にだけ効く固定費リスト。since無し(旧データ)は常時有効
+function fixedListFor(d){ var ym=ymOf(d||view); return db.fixedCosts.filter(function(f){return !f.since || f.since<=ym;}); }
+function fixedMonthlyTotal(d){ return fixedListFor(d).reduce(function(a,f){return a+(+f.amount||0);},0); }
 
 function homeStats(){
+  // 整合モデル: 固定費は月額を「予約」し、残り(変動予算)を日割りしてKPIにする。
+  // ヒーロー/トリオ/ペースはすべて「変動費 対 変動予算」で統一（固定費は別建てで日割り表示）。
   var K=kpis();
-  var expM=sum(expensesOfMonth());
+  var variableMTD=sum(expensesOfMonth());   // 手入力の変動費（当月）
   var incM=sum(incomesOfMonth());
   var cur=isCurrentMonth(view);
   var dim=K.dim;
   var elapsed=cur? new Date().getDate(): dim;
   var elapsedFrac=Math.min(1, elapsed/dim);
-  var expected=K.month*elapsedFrac;
-  var paceDiff=expM-expected;
-  var projected=(cur && elapsed>0)? Math.round(expM/elapsed*dim): expM;
+  var fixedMonthly=fixedMonthlyTotal();
+  var fixedDaily=dim>0? fixedMonthly/dim : 0;
+  var structOver=K.month>0 && fixedMonthly>K.month;    // 固定費だけで予算超過（構造的赤字）
+  var varBudget=Math.max(0, K.month - fixedMonthly);   // 固定費を引いた変動予算
+  var varDaily=dim>0? varBudget/dim : 0;               // 変動の日間KPI
+  var varWeek=varDaily*7;                              // 変動の週間KPI
+  var expMFull=variableMTD + fixedMonthly;             // 実支出（固定費は全額）
+  var varExpected=varBudget*elapsedFrac;               // 変動の経過日相当ペース基準
+  var paceDiff=variableMTD - varExpected;
+  var projVar=(cur && elapsed>0)? Math.round(variableMTD/elapsed*dim): variableMTD;
+  var projected=projVar + fixedMonthly;                // 月末着地（変動延長＋固定費全額）
   var projDiff=projected-K.month;
   var daysLeft=cur? Math.max(0, dim-elapsed+1): 0;
-  var remain=K.month-expM;
-  var perDayLeft=daysLeft>0? Math.max(0,remain)/daysLeft: 0;
-  return {K:K,expM:expM,incM:incM,cur:cur,dim:dim,elapsed:elapsed,elapsedFrac:elapsedFrac,
-          expected:expected,paceDiff:paceDiff,projected:projected,projDiff:projDiff,
-          daysLeft:daysLeft,remain:remain,perDayLeft:perDayLeft};
+  var varRemain=varBudget - variableMTD;               // 変動の残り（自由に使える）
+  var perDayLeft=daysLeft>0? Math.max(0,varRemain)/daysLeft: 0;
+  return {K:K, variableMTD:variableMTD, expMFull:expMFull, incM:incM, cur:cur, dim:dim,
+          elapsed:elapsed, elapsedFrac:elapsedFrac,
+          fixedMonthly:fixedMonthly, fixedDaily:fixedDaily, structOver:structOver,
+          varBudget:varBudget, varDaily:varDaily, varWeek:varWeek,
+          varExpected:varExpected, paceDiff:paceDiff, projected:projected, projDiff:projDiff,
+          daysLeft:daysLeft, varRemain:varRemain, perDayLeft:perDayLeft};
 }
 
 function catTotals(){
   var m=expensesOfMonth(); var out={}; CATS.forEach(function(c){out[c.key]=0;});
   m.forEach(function(e){ if(out[e.category]==null)out[e.category]=0; out[e.category]+=(+e.amount||0); });
+  fixedListFor(view).forEach(function(f){ if(out[f.category]==null)out[f.category]=0; out[f.category]+=(+f.amount||0); });
   var arr=CATS.map(function(c){return {cat:c, amt:out[c.key]||0};});
   arr.sort(function(a,b){return b.amt-a.amt;});
   return arr;
@@ -406,10 +457,10 @@ function playBars(root){
 /* ============ HOME ============ */
 function renderHome(){
   renderMonthLabel();
-  var S=homeStats(), K=S.K, expM=S.expM, incM=S.incM, s=db.settings;
+  var S=homeStats(), K=S.K, incM=S.incM, s=db.settings;
   var html='';
 
-  if(K.month<=0 && expM===0 && incM===0){
+  if(K.month<=0 && S.variableMTD===0 && incM===0 && S.fixedMonthly===0){
     html+='<div class="card hero" style="text-align:center">'+
       '<div style="font-size:19px;font-weight:900;margin:4px 0 8px">目標を決めよう</div>'+
       '<div style="font-size:13px;color:var(--tx2);line-height:1.75">月の予算、または「収入 − 目標貯蓄」を入れると、<br>週・日のKPIに自動で分解します。</div>'+
@@ -425,45 +476,57 @@ function renderHome(){
       '<button class="go-btn" data-go="goal" style="margin-top:14px">目標を設定する →</button>'+
       '</div>';
   } else {
-    var remain=S.remain, overM=remain<0;
-    var pctM=K.month>0? Math.min(100, expM/K.month*100):0;
-    var paceBad=S.cur && S.paceDiff>0;
+    var hasFixed=S.fixedMonthly>0;
+    var varRemain=S.varRemain, overM=Math.round(varRemain)<0 || S.structOver;
+    var pctM=S.structOver? 100 : (S.varBudget>0? Math.min(100, S.variableMTD/S.varBudget*100):0);
+    var paceBad=S.cur && (Math.round(S.paceDiff)>0 || S.structOver);
     html+='<div class="card hero">'+ringSvg(pctM,overM);
-    if(overM){
-      html+='<div class="cap">'+(view.getMonth()+1)+'月は予算オーバー</div>'+
-        '<div class="big"><span class="yen">¥</span><span class="num" style="color:var(--over)">'+fmt(-remain)+'</span><span class="suf" style="color:var(--over)">超過</span></div>'+
-        '<div class="sub">予算 <b class="num">¥'+fmt(K.month)+'</b> を <b class="num" style="color:var(--over)">¥'+fmt(-remain)+'</b> オーバー</div>';
+    if(S.structOver){
+      var fxOver=S.fixedMonthly-K.month;
+      html+='<div class="cap">'+(view.getMonth()+1)+'月は固定費が予算オーバー</div>'+
+        '<div class="big"><span class="yen">¥</span><span class="num" style="color:var(--over)">'+fmt(fxOver)+'</span><span class="suf" style="color:var(--over)">超過</span></div>'+
+        '<div class="sub">固定費 <b class="num" style="color:var(--over)">¥'+fmt(S.fixedMonthly)+'</b> が予算 <b class="num">¥'+fmt(K.month)+'</b> を上回っています</div>';
+    } else if(overM){
+      html+='<div class="cap">'+(view.getMonth()+1)+(hasFixed?'月は変動予算オーバー':'月は予算オーバー')+'</div>'+
+        '<div class="big"><span class="yen">¥</span><span class="num" style="color:var(--over)">'+fmt(-varRemain)+'</span><span class="suf" style="color:var(--over)">超過</span></div>'+
+        '<div class="sub">'+(hasFixed?'変動予算':'予算')+' <b class="num">¥'+fmt(S.varBudget)+'</b> を <b class="num" style="color:var(--over)">¥'+fmt(-varRemain)+'</b> オーバー</div>';
     } else {
-      html+='<div class="cap">'+(view.getMonth()+1)+'月の残り予算</div>'+
-        '<div class="big"><span class="yen">¥</span><span class="num">'+fmt(remain)+'</span></div>'+
-        '<div class="sub">使った <b class="num">¥'+fmt(expM)+'</b> / 予算 <b class="num">¥'+fmt(K.month)+'</b></div>';
+      html+='<div class="cap">'+(view.getMonth()+1)+'月の残り'+(hasFixed?'（自由に使える）':'予算')+'</div>'+
+        '<div class="big"><span class="yen">¥</span><span class="num">'+fmt(varRemain)+'</span></div>'+
+        '<div class="sub">使った <b class="num">¥'+fmt(S.variableMTD)+'</b> / '+(hasFixed?'変動予算':'予算')+' <b class="num">¥'+fmt(S.varBudget)+'</b></div>';
     }
     html+='<div class="bar '+(overM?'over':'')+'"><i data-w="'+pctM+'" style="width:0"></i>'+
       (S.cur? '<span class="pace-tick" style="left:'+(S.elapsedFrac*100)+'%"></span>':'')+'</div>';
     if(S.cur){
-      html+='<div><span class="pace-pill '+(paceBad?'bad':'ok')+'">'+(paceBad?'⚠ 予算オーバーペース':'✓ 予算内ペース')+'</span></div>';
+      var pillTx = S.structOver? '⚠ 固定費が予算を超過' : (paceBad? '⚠ 予算オーバーペース':'✓ 予算内ペース');
+      html+='<div><span class="pace-pill '+(paceBad?'bad':'ok')+'">'+pillTx+'</span></div>';
       if(S.elapsed>0){
         html+='<div class="fore-line">月末予測 <b class="num">¥'+fmt(S.projected)+'</b>'+
           (S.projDiff>0? '<span class="neg num">予算比 +¥'+fmt(S.projDiff)+'</span>' : '<span class="pos num">予算比 −¥'+fmt(-S.projDiff)+'</span>')+'</div>';
       }
-      var tight=S.perDayLeft < K.day;
-      html+='<div class="perday'+(tight?' tight':'')+'">残り <b class="num">'+S.daysLeft+'日</b> ・ 1日 <b class="num">¥'+fmt(S.perDayLeft)+'</b> 使える</div>';
+      var tight=paceBad;  // ペース判定と同一基準（信号が割れないように）
+      html+='<div class="perday'+(tight?' tight':'')+'">残り <b class="num">'+S.daysLeft+'日</b> ・ 1日 <b class="num">¥'+fmt(S.perDayLeft)+'</b> '+(hasFixed?'使える（固定費以外）':'使える')+'</div>';
+    }
+    if(hasFixed){
+      html+='<div class="fixed-note">🔁 固定費 <b class="num">¥'+fmt(S.fixedMonthly)+'</b>/月（<b class="num">¥'+fmt(S.fixedDaily)+'</b>/日）は自動で予約済み'+
+        (S.structOver? ' ・<b class="num" style="color:var(--over)">予算を¥'+fmt(S.fixedMonthly-K.month)+'超過</b>':'')+'</div>';
     }
     html+='</div>';
 
-    // trio
+    // trio（すべて 変動費 対 変動予算 で統一。固定費は上で予約済み）
+    var todaySpent=spentToday(), weekSpent=spentThisWeek();
     html+='<div class="trio">'+
-      kpiCard('今日', spentToday(), K.day, '目安')+
-      kpiCard('今週', spentThisWeek(), K.week, '目安')+
-      kpiCard(S.cur?'今月ペース':'今月', expM, S.cur?S.expected:K.month, '目安')+
+      kpiCard('今日', todaySpent, S.varDaily, '目安')+
+      kpiCard('今週', weekSpent, S.varWeek, '目安')+
+      kpiCard(S.cur?'今月ペース':'今月', S.variableMTD, S.cur?S.varExpected:S.varBudget, '目安')+
       '</div>';
   }
 
-  // Savings
-  html+='<div class="sec-t">貯蓄</div>'+savingsCard(S);
+  // Savings（予算未設定かつ収入なしのときは意味を成さないので出さない）
+  if(K.month>0 || incM>0){ html+='<div class="sec-t">貯蓄</div>'+savingsCard(S); }
 
-  // Category
-  html+='<div class="sec-t">何に使ってる？（'+(view.getMonth()+1)+'月）</div>'+categoryCard(expM);
+  // Category（固定費は月額全額で内訳に反映）
+  html+='<div class="sec-t">何に使ってる？（'+(view.getMonth()+1)+'月）</div>'+categoryCard(S.expMFull);
 
   views.home.innerHTML=html;
   playBars(views.home);
@@ -493,7 +556,7 @@ function kpiCard(cap, spent, kpi, ofw){
 }
 
 function savingsCard(S){
-  var s=db.settings, cur=S.cur, expM=S.expM, incM=S.incM, K=S.K;
+  var s=db.settings, cur=S.cur, expM=S.expMFull, incM=S.incM, K=S.K;  // 貯蓄は固定費全額を含む実支出で計算
   var target=s.targetSaving||0;
   var savingMode=(s.mode==='saving');
   var headline, label, subLine='';
@@ -544,9 +607,9 @@ function savingsCard(S){
 }
 
 function coachMsg(S, headline, target, savingMode){
-  var s=db.settings, expM=S.expM, incM=S.incM, K=S.K, elapsed=S.elapsed, dim=S.dim;
+  var s=db.settings, incM=S.incM, K=S.K, elapsed=S.elapsed, dim=S.dim;
   var expectedInc = savingMode? Math.max(incM, s.income||0): incM;
-  var projExp = elapsed>0? Math.round(expM/elapsed*dim): expM;
+  var projExp = S.projected;   // 変動費の延長＋固定費全額
   var projSave = expectedInc - projExp;
   if(target>0){
     if(headline>=target) return '🎉 今月の目標は達成。ここから使わないほど貯まります。';
@@ -706,27 +769,44 @@ function saveTx(){
 }
 function saveToast(isExp, amt, date){
   if(!isExp) return '収入 ¥'+fmt(amt)+' を記録 ・ナイス入金';
-  var K=kpis();
-  if(K.month>0 && K.day>0 && date===ymdOf(new Date())){
-    var st=spentToday();
-    if(st>K.day) return '記録OK ・今日は目安を¥'+fmt(st-K.day)+'オーバー';
-    return '記録OK ・今日はあと¥'+fmt(Math.max(0,K.day-st));
+  // view非依存で「今日」を集計し、固定費を除いた変動の日次目安と比較
+  var now=new Date(), today=ymdOf(now), dim=daysInMonth(now), budget=monthBudget();
+  var varDaily = dim>0? Math.max(0, budget - fixedMonthlyTotal(now))/dim : 0;
+  if(budget>0 && varDaily>0 && date===today){
+    var todayVar=sum(db.expenses.filter(function(e){return e.date===today;}));
+    var over=Math.round(todayVar-varDaily);   // 丸め後で判定（¥0オーバー表示を防ぐ）
+    if(over>0) return '記録OK ・今日は目安を¥'+fmt(over)+'オーバー';
+    return '記録OK ・今日はあと¥'+fmt(Math.max(0,varDaily-todayVar));
   }
   return '¥'+fmt(amt)+' を記録したよ';
 }
 
 /* ============ HISTORY ============ */
+function fixedSummaryCard(){
+  var list=fixedListFor(view);   // 表示中の月に効いている固定費だけ
+  if(list.length===0) return '';
+  var dim=daysInMonth(view), fm=fixedMonthlyTotal(), fd=dim>0?fm/dim:0;
+  var rows=list.map(function(f){
+    var c=CATMAP[f.category]||{emo:'💸',label:'その他'};
+    return '<div class="fx-sum-row"><span class="fx-emo">'+c.emo+'</span><span class="fx-nm">'+esc(f.name||c.label)+'</span>'+
+      '<span class="fx-sum-amt num">¥'+fmt(f.amount)+'<small> /月</small></span></div>';
+  }).join('');
+  return '<div class="card fx-summary"><div class="fx-sum-head">🔁 固定費（毎月・自動）'+
+    '<span class="fx-sum-total num">¥'+fmt(fm)+'/月 ・¥'+fmt(fd)+'/日</span></div>'+rows+'</div>';
+}
 function renderHist(){
   renderMonthLabel();
+  var fixedHtml=fixedSummaryCard();
   var items=[];
   db.expenses.filter(function(e){return sameMonth(e.date,view);}).forEach(function(e){items.push({type:'exp',data:e});});
   db.incomes.filter(function(e){return sameMonth(e.date,view);}).forEach(function(e){items.push({type:'inc',data:e});});
   items.sort(function(a,b){ if(a.data.date!==b.data.date) return a.data.date<b.data.date?1:-1; return (b.data.id||0)-(a.data.id||0); });
   if(items.length===0){
     var cur=isCurrentMonth(view);
-    views.hist.innerHTML='<div class="empty" style="padding:56px 0">'+
-      (cur? (view.getMonth()+1)+'月はまだ真っ白。<br>最初の1件を記録してみよう。<button class="cta-btn" data-go="add">記録をはじめる →</button>'
-          : (view.getMonth()+1)+'月の記録はありません。')+'</div>';
+    var empty='<div class="empty" style="padding:'+(fixedHtml?'32px':'56px')+' 0">'+
+      (cur? (fixedHtml? '変動費の記録はまだありません。<br>買い物などは記録タブから追加してね。' : (view.getMonth()+1)+'月はまだ真っ白。<br>最初の1件を記録してみよう。')+'<button class="cta-btn" data-go="add">記録をはじめる →</button>'
+          : '変動費の記録はありません。')+'</div>';
+    views.hist.innerHTML=fixedHtml+empty;
     return;
   }
   var html='', curDay=null;
@@ -742,7 +822,7 @@ function renderHist(){
     html+=txRow(it);
   });
   html+='</div>';
-  views.hist.innerHTML=html;
+  views.hist.innerHTML=fixedHtml+html;
 }
 function txRow(it){
   var e=it.data;
@@ -798,11 +878,58 @@ function renderGoal(){
   html+='<div class="note">※ KPIはカテゴリ合算です。日間KPI＝月予算÷その月の日数、週間KPI＝日間×7。'+
     '「貯蓄から逆算」なら収入を増やすか目標貯蓄を下げると使える額が増えます。</div>';
 
+  html+='<div class="sec-t">固定費（毎月・自動）</div>'+fixedCard();
+
   html+='<div class="sec-t">データ保護</div>'+protectCard();
 
   html+='<div class="reset-wrap"><button class="reset-link" id="resetAll">すべてのデータをリセット</button></div>';
 
   views.goal.innerHTML=html;
+}
+
+/* ============ Fixed costs ============ */
+function fixedCard(){
+  var K=kpis(), dim=K.dim;
+  // 管理カードは登録済み全件のマスター合計（今後の月に効く額）
+  var fm=db.fixedCosts.reduce(function(a,f){return a+(+f.amount||0);},0), fd=dim>0?fm/dim:0;
+  var list;
+  if(db.fixedCosts.length===0){
+    list='<div class="fx-empty">まだありません。家賃・サブスク・習い事など<b>毎月同じ支出</b>を登録すると、毎月自動で計上され、日割りでKPIに反映されます。</div>';
+  } else {
+    list=db.fixedCosts.map(function(f){
+      var c=CATMAP[f.category]||{emo:'💸',color:'#8a94a6',label:'その他'};
+      var d=dim>0?(+f.amount||0)/dim:0;
+      return '<div class="fx-item"><span class="fx-emo">'+c.emo+'</span>'+
+        '<span class="fx-name">'+esc(f.name||c.label)+'</span>'+
+        '<span class="fx-amt num">¥'+fmt(f.amount)+'<small> /月 ・¥'+fmt(d)+'/日</small></span>'+
+        '<button class="fx-del" data-fxdel="'+f.id+'" aria-label="削除">✕</button></div>';
+    }).join('');
+  }
+  var varB=Math.max(0,K.month-fm), varD=dim>0?varB/dim:0;
+  var overWarn=(K.month>0 && fm>K.month)? '<br><b style="color:var(--over)">⚠ 固定費が予算を ¥'+fmt(fm-K.month)+' 超えています</b>':'';
+  var totalLine = fm>0? '<div class="fx-total">合計 <b class="num">¥'+fmt(fm)+'</b>/月 ・<b class="num">¥'+fmt(fd)+'</b>/日'+
+      (K.month>0? '<br>固定費を引くと変動に使えるのは <b class="num">¥'+fmt(varB)+'</b>/月（<b class="num">¥'+fmt(varD)+'</b>/日）':'')+overWarn+'</div>':'';
+  var opts=CATS.map(function(c){return '<option value="'+c.key+'"'+(c.key==='rent'?' selected':'')+'>'+c.emo+' '+c.label+'</option>';}).join('');
+  var form='<div class="fx-add">'+
+    '<input id="fxName" class="inp" placeholder="項目名（例: 家賃・Netflix）" maxlength="20">'+
+    '<div class="fx-row2">'+
+      '<div class="with-yen" style="flex:1"><input id="fxAmt" class="inp" inputmode="numeric" pattern="[0-9]*" placeholder="金額 / 月"></div>'+
+      '<select id="fxCat" class="inp fx-cat">'+opts+'</select>'+
+    '</div>'+
+    '<button class="fx-add-btn" id="fxAdd">＋ 固定費を追加</button>'+
+    '</div>';
+  return '<div class="card">'+list+totalLine+form+
+    '<div class="protect-note">固定費に入れた項目は<b>毎月自動で計上</b>されます（記録タブでの手入力は不要）。月内は日割りで「今日/今週」のKPIに少しずつ反映されます。</div>'+
+    '</div>';
+}
+function addFixed(){
+  var nameEl=byId('fxName'), amtEl=byId('fxAmt'), catEl=byId('fxCat');
+  var amt=parseNum(amtEl?amtEl.value:'');
+  var cat=catEl?catEl.value:'rent';
+  var name=(nameEl?nameEl.value.trim():'') || (CATMAP[cat]?CATMAP[cat].label:'固定費');
+  if(amt<=0){ toast('金額を入れてね'); if(amtEl) amtEl.focus(); return; }
+  db.fixedCosts.push({id:newId(), name:name, category:cat, amount:amt, since:ymOf(new Date())});  // 登録月から有効（過去月に遡及しない）
+  save(); renderGoal(); toast('固定費「'+name+'」を追加したよ');
 }
 
 /* ============ Data protection (persistent storage) ============ */
@@ -880,7 +1007,7 @@ function updateGoalResult(){
 
 /* ============ Misc ============ */
 function parseNum(s){ return Math.max(0, parseInt(String(s).replace(/[^0-9]/g,''),10)||0); }
-function newId(){ return (db._c=(db._c||0)+1)*1000 + (db.expenses.length+db.incomes.length); }
+function newId(){ return db._c=(db._c||0)+1; }  // 単調増加。load()で最大idを下限に初期化するため衝突しない
 var toastT;
 function toast(msg){ var t=byId('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(function(){t.classList.remove('show');},1800); }
 
@@ -904,7 +1031,7 @@ byId('mNext').addEventListener('click', function(){ view.setMonth(view.getMonth(
 function refreshMonthViews(){ renderMonthLabel(); if(current==='home')renderHome(); else if(current==='hist')renderHist(); else if(current==='goal')renderGoal(); }
 
 document.body.addEventListener('click', function(ev){
-  var t=ev.target.closest('[data-go],[data-am],[data-cat],[data-inc],[data-mode],[data-del],[data-key],[data-datechip],#padRec,#resetAll,#persistBtn');
+  var t=ev.target.closest('[data-go],[data-am],[data-cat],[data-inc],[data-mode],[data-del],[data-key],[data-datechip],[data-fxdel],#padRec,#resetAll,#persistBtn,#fxAdd');
   if(!t) return;
   if(t.dataset.go){ show(t.dataset.go); return; }
   if(t.dataset.am){ if(addState.mode!==t.dataset.am){ addState.mode=t.dataset.am; renderAdd(); } return; }
@@ -918,6 +1045,8 @@ document.body.addEventListener('click', function(ev){
     else db.incomes=db.incomes.filter(function(e){return e.id!==id;});
     save(); renderHist(); toast('1件、削除したよ'); return; }
   if(t.id==='padRec'){ saveTx(); return; }
+  if(t.dataset.fxdel){ var fid=+t.dataset.fxdel; db.fixedCosts=db.fixedCosts.filter(function(f){return f.id!==fid;}); save(); renderGoal(); toast('固定費を削除したよ'); return; }
+  if(t.id==='fxAdd'){ addFixed(); return; }
   if(t.id==='persistBtn'){
     checkPersist(true).then(function(){ toast(persistInfo.state==='granted'?'✓ データ保護を有効にしたよ':'この端末では自動保護できませんでした'); });
     return;
@@ -935,6 +1064,7 @@ document.body.addEventListener('input', function(ev){
   var el=ev.target, id=el&&el.id;
   if(id==='memo'){ addState.memo=el.value; return; }
   if(id==='dateInp'){ addState.date=el.value; syncDateChips(); return; }
+  if(id==='fxAmt'){ var fd=el.value.replace(/[^0-9]/g,''); el.value=fd?(+fd).toLocaleString('ja-JP'):''; return; }
   if(id==='g_income'||id==='g_saving'||id==='g_budget'){
     var digits=el.value.replace(/[^0-9]/g,'');
     el.value=digits?(+digits).toLocaleString('ja-JP'):'';
