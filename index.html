@@ -234,6 +234,20 @@
   .reset-link{background:none; border:none; color:var(--tx3); font-size:12px; font-weight:700; text-decoration:underline; text-underline-offset:3px; padding:6px;}
   .reset-link:active{color:var(--over);}
 
+  /* Data protection */
+  .protect-card{margin-top:16px;}
+  .protect-head{font-size:13px; font-weight:900; margin-bottom:9px; display:flex; align-items:center; gap:7px;}
+  .protect-badge{margin-left:auto; font-size:11px; font-weight:900; padding:3px 9px; border-radius:999px;}
+  .protect-badge.on{background:color-mix(in srgb,var(--accent) 16%,transparent); color:var(--accent);}
+  .protect-badge.off{background:color-mix(in srgb,var(--blue) 16%,transparent); color:var(--blue);}
+  .protect-badge.na{background:var(--card2); color:var(--tx3);}
+  .protect-body{font-size:12.5px; color:var(--tx2); line-height:1.7;}
+  .protect-usage{font-size:11.5px; color:var(--tx3); margin-top:9px; font-weight:700;}
+  .protect-note{font-size:11px; color:var(--tx3); line-height:1.6; margin-top:11px;}
+  .protect-note b{color:var(--tx2);}
+  .ghost-btn2{width:100%; margin-top:12px; background:var(--card2); border:1px solid var(--line2); color:var(--tx); border-radius:12px; padding:12px; font-weight:800; font-size:13.5px; transition:transform .08s ease;}
+  .ghost-btn2:active{transform:scale(.98);}
+
   /* ===== Bottom nav ===== */
   nav{
     position:fixed; bottom:0; left:0; right:0; z-index:30;
@@ -784,9 +798,60 @@ function renderGoal(){
   html+='<div class="note">※ KPIはカテゴリ合算です。日間KPI＝月予算÷その月の日数、週間KPI＝日間×7。'+
     '「貯蓄から逆算」なら収入を増やすか目標貯蓄を下げると使える額が増えます。</div>';
 
+  html+='<div class="sec-t">データ保護</div>'+protectCard();
+
   html+='<div class="reset-wrap"><button class="reset-link" id="resetAll">すべてのデータをリセット</button></div>';
 
   views.goal.innerHTML=html;
+}
+
+/* ============ Data protection (persistent storage) ============ */
+var persistInfo={ state:'checking', usage:0 };
+function fmtKB(b){ if(!b) return '0 KB'; if(b<1024) return b+' B'; if(b<1048576) return (b/1024).toFixed(1)+' KB'; return (b/1048576).toFixed(2)+' MB'; }
+function protectCard(){
+  var p=persistInfo, badge, badgeCls, body, action='';
+  if(p.state==='granted'){
+    badge='✓ 保護中'; badgeCls='on';
+    body='このデータは端末に保存され、ブラウザが自動で消しにくくなっています。空き容量が減ってもデータが優先的に守られます。';
+  } else if(p.state==='denied'){
+    badge='△ 未確定'; badgeCls='off';
+    body='まだ永続保護が有効になっていません。端末の空き容量が大きく減ると、ブラウザにデータを消される可能性があります。';
+    action='<button class="ghost-btn2" id="persistBtn">保護を有効にする</button>';
+  } else if(p.state==='unsupported'){
+    badge='— 非対応'; badgeCls='na';
+    body='この端末/ブラウザは自動の永続保護に対応していません。下の「ホーム画面に追加」で使うと、データが消えにくくなります。';
+  } else {
+    badge='確認中…'; badgeCls='na'; body='保護状態を確認しています…';
+  }
+  var usage=p.usage>0? '<div class="protect-usage num">保存データ量 '+fmtKB(p.usage)+'</div>':'';
+  return '<div class="card protect-card">'+
+    '<div class="protect-head">🔒 端末に保護<span class="protect-badge '+badgeCls+'">'+badge+'</span></div>'+
+    '<div class="protect-body">'+body+'</div>'+usage+action+
+    '<div class="protect-note">記録は端末内（localStorage）にのみ保存され、外部には送信されません。iPhoneは <b>共有 → ホーム画面に追加</b> して使うと、より確実に保持されます。</div>'+
+    '</div>';
+}
+function refreshProtectCard(){
+  if(current!=='goal') return;
+  var card=views.goal.querySelector('.protect-card');
+  if(card){ var tmp=document.createElement('div'); tmp.innerHTML=protectCard(); card.replaceWith(tmp.firstChild); }
+}
+async function measureUsage(){
+  try{ if(navigator.storage && navigator.storage.estimate){ var e=await navigator.storage.estimate(); persistInfo.usage=e.usage||0; } }catch(e){}
+}
+async function checkPersist(requestIfNeeded){
+  if(!(navigator.storage && navigator.storage.persisted)){ persistInfo.state='unsupported'; await measureUsage(); refreshProtectCard(); return; }
+  try{
+    var already=await navigator.storage.persisted();
+    if(already){ persistInfo.state='granted'; }
+    else if(requestIfNeeded && navigator.storage.persist){
+      var ok=await navigator.storage.persist();
+      persistInfo.state= ok? 'granted':'denied';
+    } else {
+      persistInfo.state='denied';
+    }
+  }catch(e){ persistInfo.state='denied'; }
+  await measureUsage();
+  refreshProtectCard();
 }
 function gField(label,id,val){
   return '<div class="g-field"><label>'+label+'</label><div class="with-yen">'+
@@ -837,7 +902,7 @@ byId('mNext').addEventListener('click', function(){ view.setMonth(view.getMonth(
 function refreshMonthViews(){ renderMonthLabel(); if(current==='home')renderHome(); else if(current==='hist')renderHist(); else if(current==='goal')renderGoal(); }
 
 document.body.addEventListener('click', function(ev){
-  var t=ev.target.closest('[data-go],[data-am],[data-cat],[data-inc],[data-mode],[data-del],[data-key],[data-datechip],#padRec,#resetAll');
+  var t=ev.target.closest('[data-go],[data-am],[data-cat],[data-inc],[data-mode],[data-del],[data-key],[data-datechip],#padRec,#resetAll,#persistBtn');
   if(!t) return;
   if(t.dataset.go){ show(t.dataset.go); return; }
   if(t.dataset.am){ if(addState.mode!==t.dataset.am){ addState.mode=t.dataset.am; renderAdd(); } return; }
@@ -851,6 +916,10 @@ document.body.addEventListener('click', function(ev){
     else db.incomes=db.incomes.filter(function(e){return e.id!==id;});
     save(); renderHist(); toast('1件、削除したよ'); return; }
   if(t.id==='padRec'){ saveTx(); return; }
+  if(t.id==='persistBtn'){
+    checkPersist(true).then(function(){ toast(persistInfo.state==='granted'?'✓ データ保護を有効にしたよ':'この端末では自動保護できませんでした'); });
+    return;
+  }
   if(t.id==='resetAll'){
     if(confirm('すべての記録と目標設定をリセットします。よろしいですか？')){
       db=JSON.parse(JSON.stringify(DEFAULT)); save(); amtStr='0'; addState.category='food'; renderGoal(); toast('すべてリセットしたよ');
@@ -882,7 +951,8 @@ if(window.matchMedia){ try{ window.matchMedia('(prefers-color-scheme: light)').a
 /* ============ Boot ============ */
 renderMonthLabel();
 show('home');
-window.__mp={db:function(){return db;}, kpis:kpis, stats:homeStats, reset:function(){db=JSON.parse(JSON.stringify(DEFAULT));save();show('home');}};
+checkPersist(true);  // request persistent storage on launch (best-effort)
+window.__mp={db:function(){return db;}, kpis:kpis, stats:homeStats, persist:function(){return persistInfo;}, reset:function(){db=JSON.parse(JSON.stringify(DEFAULT));save();show('home');}};
 
 })();
 </script>
