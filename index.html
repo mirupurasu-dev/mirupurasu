@@ -809,6 +809,7 @@ function renderGoal(){
 var persistInfo={ state:'checking', usage:0 };
 function fmtKB(b){ if(!b) return '0 KB'; if(b<1024) return b+' B'; if(b<1048576) return (b/1024).toFixed(1)+' KB'; return (b/1048576).toFixed(2)+' MB'; }
 function protectCard(){
+  measureUsage();
   var p=persistInfo, badge, badgeCls, body, action='';
   if(p.state==='granted'){
     badge='✓ 保護中'; badgeCls='on';
@@ -835,11 +836,12 @@ function refreshProtectCard(){
   var card=views.goal.querySelector('.protect-card');
   if(card){ var tmp=document.createElement('div'); tmp.innerHTML=protectCard(); card.replaceWith(tmp.firstChild); }
 }
-async function measureUsage(){
-  try{ if(navigator.storage && navigator.storage.estimate){ var e=await navigator.storage.estimate(); persistInfo.usage=e.usage||0; } }catch(e){}
+function measureUsage(){
+  try{ var raw=localStorage.getItem(KEY)||''; var b; try{ b=new Blob([raw]).size; }catch(e){ b=raw.length*2; } persistInfo.usage=b; }catch(e){ persistInfo.usage=0; }
 }
 async function checkPersist(requestIfNeeded){
-  if(!(navigator.storage && navigator.storage.persisted)){ persistInfo.state='unsupported'; await measureUsage(); refreshProtectCard(); return; }
+  measureUsage();
+  if(!(navigator.storage && navigator.storage.persisted)){ persistInfo.state='unsupported'; refreshProtectCard(); return; }
   try{
     var already=await navigator.storage.persisted();
     if(already){ persistInfo.state='granted'; }
@@ -850,7 +852,7 @@ async function checkPersist(requestIfNeeded){
       persistInfo.state='denied';
     }
   }catch(e){ persistInfo.state='denied'; }
-  await measureUsage();
+  measureUsage();
   refreshProtectCard();
 }
 function gField(label,id,val){
